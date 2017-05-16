@@ -31,6 +31,12 @@ int main()
 
     char buf[256<<10];
     while ((ret = lz4reader_read(zr, buf, sizeof buf, err)) > 0)
+	continue;
+
+    if (!lz4reader_rewind(zr, err))
+	return error("lz4reader_rewind", err), 1;
+
+    while ((ret = lz4reader_read(zr, buf, sizeof buf, err)) > 0)
 	fwrite(buf, 1, ret, stdout);
     lz4reader_close(zr);
     if (ret < 0)

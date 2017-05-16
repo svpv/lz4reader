@@ -55,29 +55,16 @@ struct lz4reader {
     size_t nextSize;
     size_t zfill;
     size_t zpos;
-    char zbuf[ZBUFSIZE];
+    char zbuf[];
 };
 
-int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t peekSize, const char *err[2])
+// Reads the stream towards real data, resets the reader handle.
+static int lz4reader_init(struct lz4reader *zr, LZ4F_decompressionContext_t dctx,
+			  int fd, const void *peekBuf, size_t peekSize, const char *err[2])
 {
-    off_t pos0 = lseek(fd, 0, SEEK_CUR);
-    if (pos0 != (off_t) -1 && pos0 != peekSize)
-	return ERRSTR("file offset does not match peekSize"), -1;
-
-    struct lz4reader *zr = malloc(sizeof *zr);
-    if (!zr)
-	return ERRNO("malloc"), -1;
-
+    memset(zr, 0, sizeof *zr);
     zr->fd = fd;
-    zr->eof = false;
-    zr->error = false;
-    zr->zfill = 0;
-    zr->zpos = 0;
-
-    size_t zret = LZ4F_createDecompressionContext(&zr->dctx, LZ4F_VERSION);
-    if (LZ4F_isError(zret))
-	return ERRLZ4("LZ4F_createCompressionContext", zret),
-	       free(zr), -1;
+    zr->dctx = dctx;
 
     while (1) {
 	// Ensure we've got something to peek upon.
@@ -89,8 +76,7 @@ int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t
 		ret = read(fd, zr->zbuf, BUFSIZ);
 	    while (ret < 0 && errno == EINTR);
 	    if (ret < 0)
-		return ERRNO("read"),
-		       LZ4F_freeDecompressionContext(zr->dctx), free(zr), -1;
+		return ERRNO("read"), -1;
 	    if (ret == 0)
 		return 0;
 	    peekBuf = zr->zbuf, peekSize = ret;
@@ -101,8 +87,7 @@ int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t
 	size_t pokenSize = peekSize;
 	size_t nextSize = LZ4F_decompress(zr->dctx, NULL, &nullSize, peekBuf, &pokenSize, NULL);
 	if (LZ4F_isError(nextSize))
-	    return ERRLZ4("LZ4F_decompress", nextSize),
-		   LZ4F_freeDecompressionContext(zr->dctx), free(zr), -1;
+	    return ERRLZ4("LZ4F_decompress", nextSize), -1;
 
 	if (pokenSize == peekSize) {
 	    // Compressed data has been consumed without producing any output.
@@ -117,12 +102,10 @@ int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t
 		    ret = read(fd, zr->zbuf, BUFSIZ);
 		while (ret < 0 && errno == EINTR);
 		if (ret < 0)
-		    return ERRNO("read"),
-			   LZ4F_freeDecompressionContext(zr->dctx), free(zr), -1;
+		    return ERRNO("read"), -1;
 		// The difference is that EOF is not acceptable here.
 		if (ret == 0)
-		    return ERRSTR("unexpected EOF"),
-			   LZ4F_freeDecompressionContext(zr->dctx), free(zr), -1;
+		    return ERRSTR("unexpected EOF"), -1;
 		peekBuf = zr->zbuf, peekSize = ret;
 	    }
 	    continue;
@@ -142,21 +125,40 @@ int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t
 	    zr->zfill = peekSize, zr->zpos = pokenSize;
 	else {
 	    if (peekSize - pokenSize > ZBUFSIZE)
-		return ERRSTR("peekSize too big"),
-		       LZ4F_freeDecompressionContext(zr->dctx), free(zr), -1;
+		return ERRSTR("peekSize too big"), -1;
 	    memcpy(zr->zbuf, peekBuf + pokenSize, peekSize - pokenSize);
 	    zr->zfill = peekSize - pokenSize;
 	}
 	break;
     }
 
-    // There is something in zbuf, so the nextSize does not matter:
+    // There is something in zbuf, so don't bother setting zr->nextSize:
     // it will be obtained when zbuf is fed into the decompressor.
     assert(zr->zpos < zr->zfill);
-    zr->nextSize = 0;
 
-    *zrp = zr;
     return 1;
+}
+
+int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t peekSize, const char *err[2])
+{
+    off_t pos0 = lseek(fd, 0, SEEK_CUR);
+    if (pos0 != (off_t) -1 && pos0 != peekSize)
+	return ERRSTR("file offset does not match peekSize"), -1;
+
+    struct lz4reader *zr = malloc(sizeof *zr + ZBUFSIZE);
+    if (!zr)
+	return ERRNO("malloc"), -1;
+
+    LZ4F_decompressionContext_t dctx;
+    size_t zret = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
+    if (LZ4F_isError(zret))
+	return ERRLZ4("LZ4F_createCompressionContext", zret),
+	       free(zr), -1;
+
+    int ret = lz4reader_init(zr, dctx, fd, peekBuf, peekSize, err);
+    if (ret > 0)
+	return *zrp = zr, 1;
+    return LZ4F_freeDecompressionContext(dctx), free(zr), ret;
 }
 
 void lz4reader_close(struct lz4reader *zr)
@@ -210,6 +212,35 @@ ssize_t lz4reader_read(struct lz4reader *zr, void *buf, size_t size, const char 
     }
 
     return fill;
+}
+
+bool lz4reader_rewind(struct lz4reader *zr, const char *err[2])
+{
+    off_t pos0 = lseek(zr->fd, 0, SEEK_SET);
+    if (pos0 == (off_t) -1)
+	return ERRNO("lseek"), false;
+    assert(pos0 == 0);
+
+    // Reallocate the decompression context, unless EOF was reached
+    // successfully - in this case, the context can be resued.
+    if (!zr->eof) {
+	LZ4F_freeDecompressionContext(zr->dctx), zr->dctx = NULL;
+	size_t zret = LZ4F_createDecompressionContext(&zr->dctx, LZ4F_VERSION);
+	if (LZ4F_isError(zret))
+	    return ERRLZ4("LZ4F_createCompressionContext", zret), false;
+    }
+
+    zr->error = false;
+    zr->eof = false;
+
+    // Simply repositioning the descriptor and relying on the next read() might
+    // not be enough, better go through the same routine as with open(), i.e.
+    // step over the skippable frames until there's some real data.  This
+    // ensures that contentSize() after rewind() will be consistent.
+    int ret = lz4reader_init(zr, zr->dctx, zr->fd, NULL, 0, err);
+    if (ret == 0)
+	ERRSTR("unexpected EOF");
+    return ret > 0;
 }
 
 // ex:set ts=8 sts=4 sw=4 noet:
