@@ -49,7 +49,10 @@ static const char *xstrerror(int errnum)
 
 struct lz4reader {
     int fd;
+    bool eof;
+    bool error;
     LZ4F_decompressionContext_t dctx;
+    size_t nextSize;
     size_t zfill;
     size_t zpos;
     char zbuf[ZBUFSIZE];
@@ -66,6 +69,8 @@ int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t
 	return ERRNO("malloc"), -1;
 
     zr->fd = fd;
+    zr->eof = false;
+    zr->error = false;
     zr->zfill = 0;
     zr->zpos = 0;
 
@@ -144,6 +149,12 @@ int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t
 	}
 	break;
     }
+
+    // There is something in zbuf, so the nextSize does not matter:
+    // it will be obtained when zbuf is fed into the decompressor.
+    assert(zr->zpos < zr->zfill);
+    zr->nextSize = 0;
+
     *zrp = zr;
     return 1;
 }
@@ -153,6 +164,52 @@ void lz4reader_close(struct lz4reader *zr)
     close(zr->fd);
     LZ4F_freeDecompressionContext(zr->dctx);
     free(zr);
+}
+
+ssize_t lz4reader_read(struct lz4reader *zr, void *buf, size_t size, const char *err[2])
+{
+    if (zr->eof)
+	return 0;
+    if (zr->error)
+	return -1;
+
+    // How many bytes have been read into the output buffer.
+    size_t fill = 0;
+
+    while (size) {
+	// There must be something in zbuf.
+	if (zr->zpos == zr->zfill) {
+	    size_t n = zr->nextSize ? zr->nextSize : BUFSIZ;
+	    if (n > ZBUFSIZE)
+		n = ZBUFSIZE;
+	    ssize_t ret;
+	    do
+		ret = read(zr->fd, zr->zbuf, n);
+	    while (ret < 0 && errno == EINTR);
+	    if (ret < 0)
+		return ERRNO("read"), -(zr->error = true);
+	    if (ret == 0) {
+		// The only valid case for EOF.
+		if (zr->nextSize == 0) {
+		    zr->eof = true;
+		    break;
+		}
+		return ERRSTR("unexpected EOF"), -(zr->error = true);
+	    }
+	    zr->zfill = ret, zr->zpos = 0;
+	}
+
+	// Feed zbuf to the decompressor.
+	size_t raedenSize = zr->zfill - zr->zpos;
+	size_t wrotenSize = size;
+	zr->nextSize = LZ4F_decompress(zr->dctx, buf, &wrotenSize, zr->zbuf + zr->zpos, &raedenSize, NULL);
+	if (LZ4F_isError(zr->nextSize))
+	    return ERRLZ4("LZ4F_decompress", zr->nextSize), -(zr->error = true);
+	fill += wrotenSize, buf += wrotenSize, size -= wrotenSize;
+	zr->zpos += raedenSize;
+    }
+
+    return fill;
 }
 
 // ex:set ts=8 sts=4 sw=4 noet:
