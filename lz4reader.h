@@ -30,27 +30,32 @@ extern "C" {
 #include <stdbool.h>
 #endif
 
+struct fda; // reada.h
 struct lz4reader;
-// Returns 1 on success, 0 on EOF or valid empty input (no uncompressed data,
-// the Reader handle is not created), -1 on error.  On success, the Reader
-// handle is returned via zrp.  Bytes already read must be presented via
-// peekBuf.  Information about an error is returned via the err[2] parameter:
-// the first string is typically a function name, and the second is a string
-// which describes the error.  Both strings normally come from the read-only
-// data section.
-int lz4reader_fdopen(struct lz4reader **zrp, int fd, const void *peekBuf, size_t peekSize, const char *err[2])
-		     __attribute__((nonnull(1, 5)));
 
-// Returns the number of bytes read, -1 on error.  If the number of bytes read
-// is less than the number of bytes requested, this indicates EOF (subsequent
-// reads will return 0).
-ssize_t lz4reader_read(struct lz4reader *zr, void *buf, size_t size, const char *err[2]) __attribute__((nonnull));
-void lz4reader_close(struct lz4reader *zr) __attribute__((nonnull));
+// Returns 1 on success, 0 on EOF, -1 on error.  On success, the Reader
+// handle is returned via zp.  Information about an error is returned via
+// the err[2] parameter: the first string is typically a function name,
+// and the second is a string which describes the error.  Both strings
+// normally come from the read-only data section.
+int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
+		     __attribute__((nonnull));
 
-// Returns the uncompressed size, or 0 if the uncompressed size is not
-// available.  (The uncompressed size cannot be 0, due to fdopen semantics.)
-uint64_t lz4reader_contentSize(struct lz4reader *zr) __attribute__((nonnull));
-bool lz4reader_rewind(struct lz4reader *zr, const char *err[2]) __attribute__((nonnull));
+// The fdopen/read functions process only one LZ4 frame, and do not read
+// past the end of that frame.  Multiple frames can be concatenated,
+// but then frames boundaries can be meaningful.  The implementation also
+// rejects skippable frames, because they may need to be processed somehow.
+// It is possible to reuse the context for reading another frame.
+int lz4reader_nextFrame(struct lz4reader *z) __attribute__((nonnull));
+
+// Returns the number of bytes read, 0 on EOF, -1 on error.  If the number
+// of bytes read is less than the number of bytes requested, this indicates
+// EOF (subsequent reads will return 0).
+ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *err[2]) __attribute__((nonnull));
+void lz4reader_close(struct lz4reader *z) __attribute__((nonnull));
+
+// Returns the uncompressed size, or 0 if the size is not available.
+uint64_t lz4reader_contentSize(struct lz4reader *z) __attribute__((nonnull));
 
 #ifdef __cplusplus
 }
