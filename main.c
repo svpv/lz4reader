@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include "lz4reader.h"
+#include "reada.h"
 
 #define PROG "lz4reader"
 
@@ -16,29 +17,29 @@ static void error(const char *func, const char *err[2])
 
 int main()
 {
-    // Pretend we're peeking at the magic.
-    char zbuf[16];
-    ssize_t ret = read(0, zbuf, sizeof zbuf);
-    assert(ret >= 0);
+    char fdabuf[NREADA];
+    struct fda fda = { 0, fdabuf };
 
     const char *err[2];
-    struct lz4reader *zr;
-    int zret = lz4reader_fdopen(&zr, 0, zbuf, ret, err);
+    struct lz4reader *z;
+    int zret = lz4reader_fdopen(&z, &fda, err);
     if (zret < 0)
 	return error("lz4reader_fdopen", err), 1;
     if (zret == 0)
 	return fprintf(stderr, PROG ": empty input\n"), 0;
 
     char buf[256<<10];
-    while ((ret = lz4reader_read(zr, buf, sizeof buf, err)) > 0)
+    ssize_t ret;
+#if 0
+    while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
 	continue;
 
-    if (!lz4reader_rewind(zr, err))
+    if (!lz4reader_rewind(z, err))
 	return error("lz4reader_rewind", err), 1;
-
-    while ((ret = lz4reader_read(zr, buf, sizeof buf, err)) > 0)
+#endif
+    while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
 	fwrite(buf, 1, ret, stdout);
-    lz4reader_close(zr);
+    lz4reader_close(z);
     if (ret < 0)
 	return error("lz4reader_read", err), 1;
 
