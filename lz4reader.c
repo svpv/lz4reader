@@ -214,33 +214,4 @@ ssize_t lz4reader_read(struct lz4reader *zr, void *buf, size_t size, const char 
     return fill;
 }
 
-bool lz4reader_rewind(struct lz4reader *zr, const char *err[2])
-{
-    off_t pos0 = lseek(zr->fd, 0, SEEK_SET);
-    if (pos0 == (off_t) -1)
-	return ERRNO("lseek"), false;
-    assert(pos0 == 0);
-
-    // Reallocate the decompression context, unless EOF was reached
-    // successfully - in this case, the context can be resued.
-    if (!zr->eof) {
-	LZ4F_freeDecompressionContext(zr->dctx), zr->dctx = NULL;
-	size_t zret = LZ4F_createDecompressionContext(&zr->dctx, LZ4F_VERSION);
-	if (LZ4F_isError(zret))
-	    return ERRLZ4("LZ4F_createCompressionContext", zret), false;
-    }
-
-    zr->error = false;
-    zr->eof = false;
-
-    // Simply repositioning the descriptor and relying on the next read() might
-    // not be enough, better go through the same routine as with open(), i.e.
-    // step over the skippable frames until there's some real data.  This
-    // ensures that contentSize() after rewind() will be consistent.
-    int ret = lz4reader_init(zr, zr->dctx, zr->fd, NULL, 0, err);
-    if (ret == 0)
-	ERRSTR("unexpected EOF");
-    return ret > 0;
-}
-
 // ex:set ts=8 sts=4 sw=4 noet:
