@@ -15,6 +15,16 @@ static void error(const char *func, const char *err[2])
 	fprintf(stderr, PROG ": %s: %s: %s\n", func, err[0], err[1]);
 }
 
+static void my_rewind(struct lz4reader *z, struct fda *fda)
+{
+    off_t pos = lseek(fda->fd, 0, 0);
+    assert(pos == 0);
+    *fda = (struct fda) { fda->fd, fda->buf };
+    const char *err[2];
+    int zret = lz4reader_nextFrame(z, err);
+    assert(zret == 1);
+}
+
 int main()
 {
     char fdabuf[NREADA];
@@ -30,13 +40,12 @@ int main()
 
     char buf[256<<10];
     ssize_t ret;
-#if 0
+
     while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
 	continue;
 
-    if (!lz4reader_rewind(z, err))
-	return error("lz4reader_rewind", err), 1;
-#endif
+    my_rewind(z, &fda);
+
     while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
 	fwrite(buf, 1, ret, stdout);
     lz4reader_close(z);

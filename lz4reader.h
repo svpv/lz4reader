@@ -46,7 +46,7 @@ int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
 // but then frames boundaries can be meaningful.  The implementation also
 // rejects skippable frames, because they may need to be processed somehow.
 // It is possible to reuse the context for reading another frame.
-int lz4reader_nextFrame(struct lz4reader *z) __attribute__((nonnull));
+int lz4reader_nextFrame(struct lz4reader *z, const char *err[2]) __attribute__((nonnull));
 
 // Returns the number of bytes read, 0 on EOF, -1 on error.  If the number
 // of bytes read is less than the number of bytes requested, this indicates

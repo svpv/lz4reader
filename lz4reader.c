@@ -24,6 +24,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <unistd.h>
+#include <lz4.h> // LZ4_VERSION_NUMBER
 #include <lz4frame.h>
 #include "lz4reader.h"
 #include "reada.h"
@@ -140,6 +141,35 @@ int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
     z->zfill = z->zpos = 0;
 
     *zp = z;
+    return 1;
+}
+
+int lz4reader_nextFrame(struct lz4reader *z, const char *err[2])
+{
+    // Reallocate the decompression context, unless EOF was reached
+    // successfully - in this case, the context can be resued.
+    if (!z->eof) {
+#if LZ4_VERSION_NUMBER >= 10800
+	LZ4F_resetDecompressionContext(z->dctx);
+#else
+	LZ4F_freeDecompressionContext(z->dctx), z->dctx = NULL;
+	size_t zret = LZ4F_createDecompressionContext(&z->dctx, LZ4F_VERSION);
+	if (LZ4F_isError(zret))
+	    return ERRLZ4("LZ4F_createCompressionContext", zret), -1;
+#endif
+    }
+
+    ssize_t nextSize = lz4reader_begin(z->fda, z->dctx, err);
+    if (nextSize < 0)
+	return -1;
+    if (nextSize == 0)
+	return 0;
+    nextSize--;
+
+    z->nextSize = nextSize;
+    z->eof = z->error = false;
+    z->zfill = z->zpos = 0;
+
     return 1;
 }
 
