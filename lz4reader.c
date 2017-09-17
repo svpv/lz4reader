@@ -131,8 +131,7 @@ int lz4reader_open(struct lz4reader **zp, struct fda *fda, const char *err[2])
 
     struct lz4reader *z = malloc(sizeof *z);
     if (!z)
-	return LZ4F_freeDecompressionContext(dctx),
-	       ERRNO("malloc"), -1;
+	return ERRNO("malloc"), LZ4F_freeDecompressionContext(dctx), -1;
 
     z->fda = fda;
     z->dctx = dctx;
