@@ -168,7 +168,7 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
     if (nextSize < 0)
 	return -(z->err = true);
     if (nextSize == 0)
-	return 0;
+	return z->eof = true, +(z->err = false);
     nextSize--;
 
     z->err = false;
