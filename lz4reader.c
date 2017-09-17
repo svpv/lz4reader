@@ -107,9 +107,8 @@ static ssize_t lz4reader_begin(struct fda *fda, LZ4F_decompressionContext_t dctx
 struct lz4reader {
     struct fda *fda;
     LZ4F_decompressionContext_t dctx;
+    bool eof, err;
     size_t nextSize;
-    bool eof;
-    bool error;
     size_t zfill;
     size_t zpos;
     char zbuf[ZBUFSIZE];
@@ -135,8 +134,8 @@ int lz4reader_open(struct lz4reader **zp, struct fda *fda, const char *err[2])
 
     z->fda = fda;
     z->dctx = dctx;
+    z->eof = z->err = false;
     z->nextSize = nextSize;
-    z->eof = z->error = false;
     z->zfill = z->zpos = 0;
 
     *zp = z;
@@ -150,14 +149,16 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 
     // Reallocate the decompression context, unless EOF was reached
     // successfully - in this case, the context can be reused.
-    if (!z->eof) {
+    if (z->eof)
+	z->eof = false;
+    else {
 #if LZ4_VERSION_NUMBER >= 10800
 	LZ4F_resetDecompressionContext(z->dctx);
 #else
 	LZ4F_decompressionContext_t dctx;
 	size_t zret = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
 	if (LZ4F_isError(zret))
-	    return ERRLZ4("LZ4F_createCompressionContext", zret), -1;
+	    return ERRLZ4("LZ4F_createCompressionContext", zret), -(z->err = true);
 	LZ4F_freeDecompressionContext(z->dctx);
 	z->dctx = dctx;
 #endif
@@ -165,13 +166,14 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 
     ssize_t nextSize = lz4reader_begin(z->fda, z->dctx, err);
     if (nextSize < 0)
-	return -1;
+	return -(z->err = true);
     if (nextSize == 0)
 	return 0;
     nextSize--;
 
+    z->err = false;
+
     z->nextSize = nextSize;
-    z->eof = z->error = false;
     z->zfill = z->zpos = 0;
 
     return 1;
@@ -187,10 +189,10 @@ void lz4reader_free(struct lz4reader *z)
 
 ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *err[2])
 {
+    if (z->err)
+	return ERRSTR("pending error"), -1;
     if (z->eof)
 	return 0;
-    if (z->error)
-	return -1;
     assert(size > 0);
 
     size_t total = 0;
@@ -212,9 +214,9 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
 		n = ZBUFSIZE;
 	    ssize_t ret = reada(z->fda, z->zbuf, n);
 	    if (ret < 0)
-		return ERRNO("read"), -(z->error = true);
+		return ERRNO("read"), -(z->err = true);
 	    if (ret < n)
-		return ERRSTR("unexpected EOF"), -(z->error = true);
+		return ERRSTR("unexpected EOF"), -(z->err = true);
 	    z->zfill = ret, z->zpos = 0;
 	}
 
@@ -223,7 +225,7 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
 	size_t wrotenSize = size;
 	z->nextSize = LZ4F_decompress(z->dctx, buf, &wrotenSize, z->zbuf + z->zpos, &raedenSize, NULL);
 	if (LZ4F_isError(z->nextSize))
-	    return ERRLZ4("LZ4F_decompress", z->nextSize), -(z->error = true);
+	    return ERRLZ4("LZ4F_decompress", z->nextSize), -(z->err = true);
 	total += wrotenSize, buf += wrotenSize, size -= wrotenSize;
 	z->zpos += raedenSize;
     } while (size);
