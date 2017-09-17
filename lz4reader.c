@@ -154,10 +154,12 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 #if LZ4_VERSION_NUMBER >= 10800
 	LZ4F_resetDecompressionContext(z->dctx);
 #else
-	LZ4F_freeDecompressionContext(z->dctx), z->dctx = NULL;
-	size_t zret = LZ4F_createDecompressionContext(&z->dctx, LZ4F_VERSION);
+	LZ4F_decompressionContext_t dctx;
+	size_t zret = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
 	if (LZ4F_isError(zret))
 	    return ERRLZ4("LZ4F_createCompressionContext", zret), -1;
+	LZ4F_freeDecompressionContext(z->dctx);
+	z->dctx = dctx;
 #endif
     }
 
