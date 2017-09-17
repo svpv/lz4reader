@@ -192,8 +192,7 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
 	return -1;
     assert(size > 0);
 
-    // How many bytes have been read into the output buffer.
-    size_t fill = 0;
+    size_t total = 0;
 
     do {
 	// nextSize is the return value of LZ4F_decompress,
@@ -202,7 +201,7 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
 	    z->eof = true;
 	    // There shouldn't be anything left in the buffer.
 	    assert(z->zpos == z->zfill);
-	    return fill;
+	    return total;
 	}
 
 	// There must be something in zbuf.
@@ -224,11 +223,11 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
 	z->nextSize = LZ4F_decompress(z->dctx, buf, &wrotenSize, z->zbuf + z->zpos, &raedenSize, NULL);
 	if (LZ4F_isError(z->nextSize))
 	    return ERRLZ4("LZ4F_decompress", z->nextSize), -(z->error = true);
-	fill += wrotenSize, buf += wrotenSize, size -= wrotenSize;
+	total += wrotenSize, buf += wrotenSize, size -= wrotenSize;
 	z->zpos += raedenSize;
     } while (size);
 
-    return fill;
+    return total;
 }
 
 // ex:set ts=8 sts=4 sw=4 noet:
