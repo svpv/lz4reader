@@ -41,16 +41,33 @@ int main()
     char buf[256<<10];
     ssize_t ret;
 
-    while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
-	continue;
+    while (1) {
+	while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
+	    continue;
+	if (ret < 0)
+	    return error("lz4reader_read", err), 1;
+	zret = lz4reader_reopen(z, &fda, err);
+	if (zret < 0)
+	    return error("lz4reader_reopen", err), 1;
+	if (zret == 0)
+	    break;
+    }
 
     my_rewind(z, &fda);
 
-    while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
-	fwrite(buf, 1, ret, stdout);
+    while (1) {
+	while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
+	    fwrite(buf, 1, ret, stdout);
+	if (ret < 0)
+	    return error("lz4reader_read", err), 1;
+	zret = lz4reader_reopen(z, &fda, err);
+	if (zret < 0)
+	    return error("lz4reader_reopen", err), 1;
+	if (zret == 0)
+	    break;
+    }
+
     lz4reader_free(z);
-    if (ret < 0)
-	return error("lz4reader_read", err), 1;
 
     return 0;
 }
