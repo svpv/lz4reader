@@ -44,7 +44,7 @@ static const char *xstrerror(int errnum)
 #define ERRLZ4(func, ret) err[0] = func, err[1] = LZ4F_getErrorName(ret)
 #define ERRSTR(str) err[0] = __func__, err[1] = str
 
-// Start decoding at the begining of a frame.
+// Start decoding at the beginning of a frame.
 static ssize_t lz4reader_begin(struct fda *fda, LZ4F_decompressionContext_t dctx,
 			       const char *err[2])
 {
@@ -147,7 +147,7 @@ int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
 int lz4reader_nextFrame(struct lz4reader *z, const char *err[2])
 {
     // Reallocate the decompression context, unless EOF was reached
-    // successfully - in this case, the context can be resued.
+    // successfully - in this case, the context can be reused.
     if (!z->eof) {
 #if LZ4_VERSION_NUMBER >= 10800
 	LZ4F_resetDecompressionContext(z->dctx);

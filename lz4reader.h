@@ -34,16 +34,16 @@ struct fda; // reada.h
 struct lz4reader;
 
 // Returns 1 on success, 0 on EOF, -1 on error.  On success, the Reader
-// handle is returned via zp.  Information about an error is returned via
-// the err[2] parameter: the first string is typically a function name,
-// and the second is a string which describes the error.  Both strings
+// handle is returned via zp.  Information about the error is returned via
+// the err[2] parameter: the first string is typically the function name,
+// and the second is the string which describes the error.  Both strings
 // normally come from the read-only data section.
 int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
 		     __attribute__((nonnull));
 
 // The fdopen/read functions process only one LZ4 frame, and do not read
 // past the end of that frame.  Multiple frames can be concatenated,
-// but then frames boundaries can be meaningful.  The implementation also
+// but then frame boundaries can be meaningful.  The implementation also
 // rejects skippable frames, because they may need to be processed somehow.
 // It is possible to reuse the context for reading another frame.
 int lz4reader_nextFrame(struct lz4reader *z, const char *err[2]) __attribute__((nonnull));
