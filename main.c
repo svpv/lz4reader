@@ -21,7 +21,7 @@ static void my_rewind(struct lz4reader *z, struct fda *fda)
     assert(pos == 0);
     *fda = (struct fda) { fda->fd, fda->buf };
     const char *err[2];
-    int zret = lz4reader_nextFrame(z, err);
+    int zret = lz4reader_reopen(z, fda, err);
     assert(zret == 1);
 }
 
@@ -32,7 +32,7 @@ int main()
 
     const char *err[2];
     struct lz4reader *z;
-    int zret = lz4reader_fdopen(&z, &fda, err);
+    int zret = lz4reader_open(&z, &fda, err);
     if (zret < 0)
 	return error("lz4reader_fdopen", err), 1;
     if (zret == 0)
@@ -48,7 +48,7 @@ int main()
 
     while ((ret = lz4reader_read(z, buf, sizeof buf, err)) > 0)
 	fwrite(buf, 1, ret, stdout);
-    lz4reader_close(z);
+    lz4reader_free(z);
     if (ret < 0)
 	return error("lz4reader_read", err), 1;
 

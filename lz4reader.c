@@ -20,10 +20,10 @@
 
 #include <stdio.h> // sys_errlist
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include <unistd.h>
 #include <lz4.h> // LZ4_VERSION_NUMBER
 #include <lz4frame.h>
 #include "lz4reader.h"
@@ -115,7 +115,7 @@ struct lz4reader {
     char zbuf[ZBUFSIZE];
 };
 
-int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
+int lz4reader_open(struct lz4reader **zp, struct fda *fda, const char *err[2])
 {
     LZ4F_decompressionContext_t dctx;
     size_t zet = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
@@ -144,8 +144,11 @@ int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
     return 1;
 }
 
-int lz4reader_nextFrame(struct lz4reader *z, const char *err[2])
+int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 {
+    if (fda)
+	z->fda = fda;
+
     // Reallocate the decompression context, unless EOF was reached
     // successfully - in this case, the context can be reused.
     if (!z->eof) {
@@ -173,9 +176,10 @@ int lz4reader_nextFrame(struct lz4reader *z, const char *err[2])
     return 1;
 }
 
-void lz4reader_close(struct lz4reader *z)
+void lz4reader_free(struct lz4reader *z)
 {
-    close(z->fda->fd);
+    if (!z)
+	return;
     LZ4F_freeDecompressionContext(z->dctx);
     free(z);
 }

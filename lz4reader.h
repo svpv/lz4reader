@@ -26,8 +26,6 @@
 
 #ifdef __cplusplus
 extern "C" {
-#else
-#include <stdbool.h>
 #endif
 
 struct fda; // reada.h
@@ -38,21 +36,27 @@ struct lz4reader;
 // the err[2] parameter: the first string is typically the function name,
 // and the second is the string which describes the error.  Both strings
 // normally come from the read-only data section.
-int lz4reader_fdopen(struct lz4reader **zp, struct fda *fda, const char *err[2])
-		     __attribute__((nonnull));
+int lz4reader_open(struct lz4reader **zp, struct fda *fda, const char *err[2])
+		   __attribute__((nonnull));
 
-// The fdopen/read functions process only one LZ4 frame, and do not read
+// The open/read functions process only one LZ4 frame, and do not read
 // past the end of that frame.  Multiple frames can be concatenated,
 // but then frame boundaries can be meaningful.  The implementation also
 // rejects skippable frames, because they may need to be processed somehow.
-// It is possible to reuse the context for reading another frame.
-int lz4reader_nextFrame(struct lz4reader *z, const char *err[2]) __attribute__((nonnull));
+// It is possible to reuse the Reader for reading another frame.
+// When fda is NULL, this function will reuse the previous file descriptor;
+// otherwise, the previous file descriptor will not be closed automatically.
+int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
+		     __attribute__((nonnull(1, 3)));
+
+// Doesn't close its file descriptor.
+void lz4reader_free(struct lz4reader *z);
 
 // Returns the number of bytes read, 0 on EOF, -1 on error.  If the number
 // of bytes read is less than the number of bytes requested, this indicates
 // EOF (subsequent reads will return 0).
-ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *err[2]) __attribute__((nonnull));
-void lz4reader_close(struct lz4reader *z) __attribute__((nonnull));
+ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *err[2])
+		       __attribute__((nonnull));
 
 // Returns the uncompressed size, or 0 if the size is not available.
 uint64_t lz4reader_contentSize(struct lz4reader *z) __attribute__((nonnull));
