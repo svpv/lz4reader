@@ -166,7 +166,10 @@ int lz4reader_open(struct lz4reader **zp, struct fda *fda, const char *err[2])
 
     z->fda = fda;
     z->dctx = dctx;
-    z->eof = z->err = false;
+    // It is tempting to check for contentSize == 0 here.  However, this
+    // would leave out the case where the checksum still must be verified.
+    z->eof = nextSize == 0;
+    z->err = false;
     z->nextSize = nextSize;
     z->contentSize = contentSize;
     z->zfill = z->zpos = 0;
@@ -206,6 +209,7 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 	return z->eof = true, +(z->err = false);
     nextSize--;
 
+    z->eof = nextSize == 0;
     z->err = false;
 
     z->nextSize = nextSize;
@@ -233,15 +237,6 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
     size_t total = 0;
 
     do {
-	// nextSize is the return value of LZ4F_decompress,
-	// 0 indicates EOF.
-	if (z->nextSize == 0) {
-	    z->eof = true;
-	    // There shouldn't be anything left in the buffer.
-	    assert(z->zpos == z->zfill);
-	    return total;
-	}
-
 	// There must be something in zbuf.
 	if (z->zpos == z->zfill) {
 	    size_t n = z->nextSize;
@@ -263,6 +258,13 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
 	    return ERRLZ4("LZ4F_decompress", z->nextSize), -(z->err = true);
 	total += wrotenSize, buf += wrotenSize, size -= wrotenSize;
 	z->zpos += raedenSize;
+
+	if (z->nextSize == 0) {
+	    z->eof = true;
+	    // There shouldn't be anything left in the buffer.
+	    assert(z->zpos == z->zfill);
+	    break;
+	}
     } while (size);
 
     return total;
