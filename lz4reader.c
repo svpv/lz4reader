@@ -193,12 +193,17 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 #if LZ4_VERSION_NUMBER >= 10800
 	LZ4F_resetDecompressionContext(z->dctx);
 #else
-	LZ4F_decompressionContext_t dctx;
-	size_t zret = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
+	LZ4F_freeDecompressionContext(z->dctx), z->dctx = NULL;
+	size_t zret = LZ4F_createDecompressionContext(&z->dctx, LZ4F_VERSION);
+	// It is unlikely that malloc after free with the same size will fail.
+	// However, what if it does?  The object will be left in a somewhat
+	// inconsistent state with z->dctx == NULL.  However, note that
+	// LZ4F_freeDecompressionContext accepts NULL.  Moreover, since z->eof
+	// has been cleared, the next call to reopen will execute exactly this
+	// very same path.  And because z->err will be set, any use of z->dctx
+	// will be precluded until it is successfully allocated.
 	if (LZ4F_isError(zret))
 	    return ERRLZ4("LZ4F_createCompressionContext", zret), -(z->err = true);
-	LZ4F_freeDecompressionContext(z->dctx);
-	z->dctx = dctx;
 #endif
     }
 
