@@ -46,7 +46,7 @@ static const char *xstrerror(int errnum)
 
 // Start decoding at the beginning of a frame.
 static ssize_t lz4reader_begin(struct fda *fda, LZ4F_decompressionContext_t dctx,
-			       const char *err[2])
+			       int64_t *contentSizep, const char *err[2])
 {
     char buf[16];
     const unsigned char magic[4] = { 0x04, 0x22, 0x4d, 0x18 };
@@ -96,6 +96,36 @@ static ssize_t lz4reader_begin(struct fda *fda, LZ4F_decompressionContext_t dctx
     assert(pokenSize == peekSize);
 
     nextSize = zret;
+
+    int64_t contentSize = -1;
+    if (nextSize == 0)
+	contentSize = 0;
+    else {
+	// The frame header has been decoded by now, so LZ4F_getFrameInfo()
+	// will fetch us its internal copy of frameInfo.
+	LZ4F_frameInfo_t frameInfo;
+	pokenSize = 0;
+	zret = LZ4F_getFrameInfo(dctx, &frameInfo, NULL, &pokenSize);
+	assert(zret == nextSize);
+
+	if (frameInfo.contentSize) {
+	    if (frameInfo.contentSize > INT64_MAX)
+		return ERRSTR("invalid contentSize"), -1;
+	    contentSize = frameInfo.contentSize;
+	}
+	else {
+	    // Check the size of the first block.
+	    unsigned w;
+	    memcpy(&w, buf + peekSize - 4, 4);
+	    if (w == 0) {
+		// Just requesting checksum?
+		assert(nextSize == 4);
+		contentSize = 0;
+	    }
+	}
+    }
+
+    *contentSizep = contentSize;
     return nextSize + 1;
 }
 
@@ -109,6 +139,7 @@ struct lz4reader {
     LZ4F_decompressionContext_t dctx;
     bool eof, err;
     size_t nextSize;
+    int64_t contentSize;
     size_t zfill;
     size_t zpos;
     char zbuf[ZBUFSIZE];
@@ -121,7 +152,8 @@ int lz4reader_open(struct lz4reader **zp, struct fda *fda, const char *err[2])
     if (LZ4F_isError(zet))
 	return ERRLZ4("LZ4F_createCompressionContext", zet), -1;
 
-    ssize_t nextSize = lz4reader_begin(fda, dctx, err);
+    int64_t contentSize;
+    ssize_t nextSize = lz4reader_begin(fda, dctx, &contentSize, err);
     if (nextSize < 0)
 	return LZ4F_freeDecompressionContext(dctx), -1;
     if (nextSize == 0)
@@ -136,6 +168,7 @@ int lz4reader_open(struct lz4reader **zp, struct fda *fda, const char *err[2])
     z->dctx = dctx;
     z->eof = z->err = false;
     z->nextSize = nextSize;
+    z->contentSize = contentSize;
     z->zfill = z->zpos = 0;
 
     *zp = z;
@@ -146,6 +179,8 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 {
     if (fda)
 	z->fda = fda;
+
+    z->contentSize = -1;
 
     // Reallocate the decompression context, unless EOF was reached
     // successfully - in this case, the context can be reused.
@@ -164,7 +199,7 @@ int lz4reader_reopen(struct lz4reader *z, struct fda *fda, const char *err[2])
 #endif
     }
 
-    ssize_t nextSize = lz4reader_begin(z->fda, z->dctx, err);
+    ssize_t nextSize = lz4reader_begin(z->fda, z->dctx, &z->contentSize, err);
     if (nextSize < 0)
 	return -(z->err = true);
     if (nextSize == 0)
@@ -231,6 +266,11 @@ ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *
     } while (size);
 
     return total;
+}
+
+int64_t lz4reader_contentSize(struct lz4reader *z)
+{
+    return z->contentSize;
 }
 
 // ex:set ts=8 sts=4 sw=4 noet:

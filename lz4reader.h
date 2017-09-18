@@ -58,8 +58,10 @@ void lz4reader_free(struct lz4reader *z);
 ssize_t lz4reader_read(struct lz4reader *z, void *buf, size_t size, const char *err[2])
 		       __attribute__((nonnull));
 
-// Returns the uncompressed size, or 0 if the size is not available.
-uint64_t lz4reader_contentSize(struct lz4reader *z) __attribute__((nonnull));
+// Returns the uncompressed size, -1 if the size is unknown, 0 for an
+// empty frame (the first read is to return 0).  No error is possible,
+// since the size is actually determined at the open/reopen stage.
+int64_t lz4reader_contentSize(struct lz4reader *z) __attribute__((nonnull));
 
 #ifdef __cplusplus
 }
